@@ -1,4 +1,4 @@
-Sub CreateMBS_PRO_Dropdown()
+Sub CreateMBS_PRO_Table()
     Dim wsMBS As Worksheet
     Dim wsPRO As Worksheet
     Dim wsDest As Worksheet
@@ -7,9 +7,9 @@ Sub CreateMBS_PRO_Dropdown()
     Dim i As Long
     Dim j As Long
     Dim lgaSocket As String
-    Dim processorList As String
     Dim partDescription As String
     Dim newRow As Long
+    Dim processorFound As Boolean
     
     ' Set worksheets
     Set wsMBS = ThisWorkbook.Sheets("MBS")
@@ -33,7 +33,8 @@ Sub CreateMBS_PRO_Dropdown()
     ' Add headers to the destination sheet
     wsDest.Cells(1, 1).Value = "Motherboard Part Number"
     wsDest.Cells(1, 2).Value = "Motherboard Description"
-    wsDest.Cells(1, 3).Value = "Compatible Processors"
+    wsDest.Cells(1, 3).Value = "Processor Part Number"
+    wsDest.Cells(1, 4).Value = "Processor Description"
     
     ' Loop through each row in the MBS sheet
     newRow = 2
@@ -45,29 +46,31 @@ Sub CreateMBS_PRO_Dropdown()
         
         ' If LGA socket is found, find compatible processors
         If lgaSocket <> "" Then
-            processorList = ""
+            processorFound = False
+            
+            ' Populate the motherboard information
+            wsDest.Cells(newRow, 1).Value = wsMBS.Cells(i, 1).Value
+            wsDest.Cells(newRow, 2).Value = partDescription
+            newRow = newRow + 1
+            
+            ' Add processors that match the LGA socket
             For j = 2 To lastRowPRO
                 If InStr(1, wsPRO.Cells(j, 3).Value, lgaSocket, vbTextCompare) > 0 Then
-                    processorList = processorList & wsPRO.Cells(j, 3).Value & vbCrLf
+                    wsDest.Cells(newRow, 3).Value = wsPRO.Cells(j, 1).Value
+                    wsDest.Cells(newRow, 4).Value = wsPRO.Cells(j, 3).Value
+                    newRow = newRow + 1
+                    processorFound = True
                 End If
             Next j
             
-            ' Populate the destination sheet
-            If processorList <> "" Then
-                wsDest.Cells(newRow, 1).Value = wsMBS.Cells(i, 1).Value
-                wsDest.Cells(newRow, 2).Value = partDescription
-                With wsDest.Cells(newRow, 3).Validation
-                    .Delete
-                    .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, Operator:= _
-                    xlBetween, Formula1:=processorList
-                    .IgnoreBlank = True
-                    .InCellDropdown = True
-                    .ShowInput = True
-                    .ShowError = True
-                End With
-                wsDest.Cells(newRow, 3).Value = "Select Processor"
+            ' If no processors found, indicate so
+            If Not processorFound Then
+                wsDest.Cells(newRow, 3).Value = "No compatible processors found"
                 newRow = newRow + 1
             End If
+            
+            ' Add an empty row for separation
+            newRow = newRow + 1
         End If
     Next i
     
