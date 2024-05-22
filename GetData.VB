@@ -56,8 +56,16 @@ Sub getData()
             
             ' Copy the row to the destination worksheet if no duplicate is found
             If Not foundDuplicate Then
-                wsSource.Rows(i).Copy
-                wsDest.Cells(lastDestRow + 1, "A").PasteSpecial xlPasteValues
+                ' Additional check for MMP parts
+                If partType = "MMP" Then
+                    If InStr(1, wsSource.Cells(i, 3).Value, "PLATE, FRONT", vbTextCompare) > 0 Then
+                        wsSource.Rows(i).Copy
+                        wsDest.Cells(lastDestRow + 1, "A").PasteSpecial xlPasteValues
+                    End If
+                Else
+                    wsSource.Rows(i).Copy
+                    wsDest.Cells(lastDestRow + 1, "A").PasteSpecial xlPasteValues
+                End If
             End If
         End If
     Next i
