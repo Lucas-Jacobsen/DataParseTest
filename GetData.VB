@@ -6,6 +6,9 @@ Sub getData()
     Dim partType As String
     Dim wsDict As Object
     Dim wsName As String
+    Dim lastDestRow As Long
+    Dim foundDuplicate As Boolean
+    Dim j As Long
     
     Set wsSource = ThisWorkbook.Sheets("Sheet1")
     lastRow = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row 
@@ -39,9 +42,23 @@ Sub getData()
             End If
             On Error GoTo 0
             
-            ' Copy the row to the destination worksheet
-            wsSource.Rows(i).Copy
-            wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Offset(1, 0).PasteSpecial xlPasteValues
+            ' Initialize foundDuplicate as False
+            foundDuplicate = False
+            
+            ' Check for duplicates in the destination sheet
+            lastDestRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row
+            For j = 1 To lastDestRow
+                If wsSource.Cells(i, 1).Value = wsDest.Cells(j, 1).Value Then
+                    foundDuplicate = True
+                    Exit For
+                End If
+            Next j
+            
+            ' Copy the row to the destination worksheet if no duplicate is found
+            If Not foundDuplicate Then
+                wsSource.Rows(i).Copy
+                wsDest.Cells(lastDestRow + 1, "A").PasteSpecial xlPasteValues
+            End If
         End If
     Next i
     
