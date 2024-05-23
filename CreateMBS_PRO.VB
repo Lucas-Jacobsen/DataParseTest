@@ -15,11 +15,10 @@ Sub CreateMBS_PRO_Table()
     Set wsMBS = ThisWorkbook.Sheets("MBS")
     Set wsPRO = ThisWorkbook.Sheets("PRO")
     
-    ' Find the last rows
     lastRowMBS = wsMBS.Cells(wsMBS.Rows.Count, "A").End(xlUp).Row
     lastRowPRO = wsPRO.Cells(wsPRO.Rows.Count, "A").End(xlUp).Row
     
-    ' Create or clear the destination sheet
+    ' Create or clear destination sheet
     On Error Resume Next
     Set wsDest = ThisWorkbook.Sheets("MBS+PRO")
     If wsDest Is Nothing Then
@@ -30,7 +29,7 @@ Sub CreateMBS_PRO_Table()
     End If
     On Error GoTo 0
     
-    ' Add headers to the destination sheet
+    ' headers
     wsDest.Cells(1, 1).Value = "Motherboard Part Number"
     wsDest.Cells(1, 2).Value = "Motherboard Description"
     wsDest.Cells(1, 3).Value = "Processor Part Number"
@@ -63,30 +62,34 @@ Sub CreateMBS_PRO_Table()
                 End If
             Next j
             
-            ' If no processors found, indicate so
+            ' no processors found
             If Not processorFound Then
                 wsDest.Cells(newRow, 3).Value = "No compatible processors found"
                 newRow = newRow + 1
             End If
             
-            ' Add an empty row for separation
             newRow = newRow + 1
         End If
     Next i
     
-    ' Autofit columns for better appearance
     wsDest.Columns.AutoFit
 End Sub
 
-Function ExtractLGASocket(description As String) As String
-    Dim lgaPos As Long
-    Dim lgaSocket As String
-    
-    lgaPos = InStr(1, description, "LGA", vbTextCompare)
-    If lgaPos > 0 Then
-        lgaSocket = Mid(description, lgaPos, 8) ' Assuming LGA socket format "LGAxxxx"
-        ExtractLGASocket = lgaSocket
+Function ExtractLGASocket(partDescription As String) As String
+Dim lgaSocket As String
+Dim lgaPattern As String
+Dim regex As Object
+Set regex = CreateObject("VBScript.RegExp")
+
+lgaPattern = "LGA\s?\d{2,4}" ' Pattern to match LGA socket number
+
+With regex
+    .Global = True
+    .Pattern = lgaPattern
+    If .Test(partDescription) Then
+        ExtractLGASocket = .Execute(partDescription)(0)
     Else
         ExtractLGASocket = ""
     End If
+End With
 End Function
