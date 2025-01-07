@@ -1,0 +1,2679 @@
+Sub getData()
+Set wsSource = ThisWorkbook.Sheets("Sheet1")
+lastRow = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+
+' Create a dictionary to map part types to worksheets
+Set wsDict = CreateObject("Scripting.Dictionary")
+
+' Add part types and their corresponding worksheet names
+wsDict.Add "PRO", "PRO"
+wsDict.Add "CHK", "CHK"
+wsDict.Add "PSK", "PSK"
+wsDict.Add "MBK", "MBK"
+wsDict.Add "MBS", "MBS"
+wsDict.Add "MEM", "MEM"
+wsDict.Add "MOD", "MOD"
+wsDict.Add "MMP", "MMP"
+wsDict.Add "EDV", "EDV"
+wsDict.Add "HDD", "HDD"
+wsDict.Add "WHS", "WHS"
+
+For i = 2 To lastRow
+    partType = Left(wsSource.Cells(i, 1).value, 3) ' Get the first 3 characters
+    
+    ' Check if the part type is in the dictionary
+    If wsDict.exists(partType) Then
+        wsName = wsDict(partType)
+        
+        ' Check if the worksheet already existsif not, create it
+        On Error Resume Next
+        Set wsDest = ThisWorkbook.Sheets(wsName)
+        If wsDest Is Nothing Then
+            Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+            wsDest.Name = wsName
+        End If
+        On Error GoTo 0
+        
+        foundDuplicate = False
+        
+        ' Check for duplicates in the destination sheet
+        lastDestRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row
+        For j = 1 To lastDestRow
+            If wsSource.Cells(i, 1).value = wsDest.Cells(j, 1).value Then
+                foundDuplicate = True
+                Exit For
+            End If
+        Next j
+        
+        ' Copy the row to the destination worksheet if no duplicate is found
+        If Not foundDuplicate Then
+            ' Filter MMP
+            If partType = "MMP" Then
+                If InStr(1, wsSource.Cells(i, 3).value, "PLATE, FRONT", vbTextCompare) > 0 Then
+                    wsDest.Cells(lastDestRow + 1, "A").value = wsSource.Cells(i, 1).value
+                    wsDest.Cells(lastDestRow + 1, "B").value = wsSource.Cells(i, 3).value
+                    wsDest.Cells(lastDestRow + 1, "C").value = wsSource.Cells(i, 2).value
+                End If
+            Else
+                 wsDest.Cells(lastDestRow + 1, "A").value = wsSource.Cells(i, 1).value
+                 wsDest.Cells(lastDestRow + 1, "B").value = wsSource.Cells(i, 3).value
+                 wsDest.Cells(lastDestRow + 1, "C").value = wsSource.Cells(i, 2).value
+            End If
+        End If
+    End If
+Next i
+wsDest.Columns.AutoFit
+End Sub
+Sub CreateMBS_PRO_Table()
+    Dim wsMBS As Worksheet
+    Dim wsPRO As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowMBS As Long
+    Dim lastRowPRO As Long
+    Dim i As Long
+    Dim j As Long
+    Dim lgaSocket As String
+    Dim partDescription As String
+    Dim newRow As Long
+    Dim processorFound As Boolean
+    
+    ' Set worksheets
+    Set wsMBS = ThisWorkbook.Sheets("MBS")
+    Set wsPRO = ThisWorkbook.Sheets("PRO")
+    
+    lastRowMBS = wsMBS.Cells(wsMBS.Rows.Count, "A").End(xlUp).Row
+    lastRowPRO = wsPRO.Cells(wsPRO.Rows.Count, "A").End(xlUp).Row
+    
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("MBS+PRO")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "MBS+PRO"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' headers
+    wsDest.Cells(1, 2).value = "Motherboard Part Number"
+    wsDest.Cells(1, 3).value = "Motherboard Description"
+    wsDest.Cells(1, 4).value = "Processor Part Number"
+    wsDest.Cells(1, 5).value = "Processor Description"
+    
+    ' Loop through each row in the MBS sheet
+    newRow = 2
+    For i = 2 To lastRowMBS
+        partDescription = wsMBS.Cells(i, 2).value
+        
+        ' Extract LGA socket from the description
+        lgaSocket = ExtractLGASocket(partDescription)
+        
+        ' If LGA socket is found, find compatible processors
+        If lgaSocket <> "" Then
+            processorFound = False
+            
+            ' Populate the motherboard information
+            wsDest.Cells(newRow, 2).value = wsMBS.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = partDescription
+            newRow = newRow + 1
+            
+            ' Add processors that match the LGA socket
+            For j = 2 To lastRowPRO
+                If InStr(1, wsPRO.Cells(j, 2).value, lgaSocket, vbTextCompare) > 0 Then
+                    wsDest.Cells(newRow, 4).value = wsPRO.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsPRO.Cells(j, 2).value
+                    newRow = newRow + 1
+                    processorFound = True
+                End If
+            Next j
+            
+            ' no processors found
+            If Not processorFound Then
+                wsDest.Cells(newRow, 2).value = "No compatible processors found"
+                newRow = newRow + 1
+            End If
+            
+            newRow = newRow + 1
+        End If
+    Next i
+    
+    wsDest.Columns.AutoFit
+End Sub
+
+Sub CreateMBK_MBS_Table()
+    Dim wsMBK As Worksheet
+    Dim wsMBS As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowMBK As Long
+    Dim lastRowMBS As Long
+    Dim i As Long
+    Dim j As Long
+    Dim mbkDescription As String
+    Dim mbkXU As String
+    Dim mbsDescription As String
+    Dim newRow As Long
+    Dim mbsPartNumber As String
+    Dim mbsRow As Long
+    Dim foundCell As Range
+    
+    ' Set worksheets
+    Set wsMBK = ThisWorkbook.Sheets("MBK")
+    Set wsMBS = ThisWorkbook.Sheets("MBS")
+    
+    lastRowMBK = wsMBK.Cells(wsMBK.Rows.Count, "A").End(xlUp).Row
+    
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("MBK+MBS")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "MBK+MBS"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' Set headers
+    wsDest.Cells(1, 2).value = "MBK Part Number"
+    wsDest.Cells(1, 3).value = "MBK Description"
+    wsDest.Cells(1, 4).value = "MBS Part Number"
+    wsDest.Cells(1, 5).value = "MBS Description"
+    
+    ' Initialize new row
+    newRow = 2
+    
+    ' Process each U size
+    Dim sizes As Variant
+    sizes = Array("1U", "2U", "3U", "4U")
+    
+    For Each Size In sizes
+        ' Add size header
+        wsDest.Cells(newRow, 1).value = Size
+        newRow = newRow + 1
+        
+        For i = 2 To lastRowMBK
+            mbkDescription = wsMBK.Cells(i, 2).value
+            mbkXU = ExtractMotherboard(mbkDescription)
+            
+            If InStr(1, mbkDescription, Size, vbTextCompare) > 0 Then
+                ' Populate MBK information
+                wsDest.Cells(newRow, 2).value = wsMBK.Cells(i, 1).value
+                wsDest.Cells(newRow, 3).value = mbkDescription
+                wsDest.Cells(newRow, 4).value = mbkXU
+                
+                ' Lookup MBS Description
+                mbsPartNumber = mbkXU
+                Set foundCell = wsMBS.Columns("A").Find(What:=mbsPartNumber, LookIn:=xlValues, LookAt:=xlWhole)
+                
+                If Not foundCell Is Nothing Then
+                    mbsRow = foundCell.Row
+                    mbsDescription = wsMBS.Cells(mbsRow, 2).value
+                Else
+                    mbsDescription = "Not Found"
+                End If
+                
+                wsDest.Cells(newRow, 5).value = mbsDescription
+                
+                newRow = newRow + 1
+            End If
+        Next i
+    Next Size
+    
+    wsDest.Columns.AutoFit
+End Sub
+
+
+Sub CreateCHK_MMP_Table()
+    Dim wsChk As Worksheet
+    Dim wsMMP As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowMMP As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim mmpDescription As String
+    Dim chkXU As String
+    Dim mmpXU As String
+    Dim newRow As Long
+    Dim chkVersion As String
+    Dim chkStartIndex As Long
+    
+     ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsMMP = ThisWorkbook.Sheets("MMP")
+ 
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowMMP = wsMMP.Cells(wsMMP.Rows.Count, "A").End(xlUp).Row
+        
+        ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("CHK+MMP")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "CHK+MMP"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' headers
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "MMP Part Number"
+    wsDest.Cells(1, 5).value = "MMP Description"
+
+    ' 1U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "1U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+    
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+    
+        
+        If chkXU = "1" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+
+           newRow = newRow + 1
+       ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = "1" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+    Next i
+    
+     ' 2U
+    wsDest.Cells(newRow, 1).value = "2U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "2" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+       ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = "2" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+    Next i
+     '3U
+    wsDest.Cells(newRow, 1).value = "3U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "3" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+           newRow = newRow + 1
+           
+            ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = "3" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+     
+    Next i
+    '4U
+    wsDest.Cells(newRow, 1).value = "4U"
+    newRow = newRow + 1
+   For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "4" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+        
+            ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = "4" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+    Next i
+    
+    'Other
+    wsDest.Cells(newRow, 1).value = "Other"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+      If chkXU <> "1" And chkXU <> "2" And chkXU <> "3" And chkXU <> "4" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            wsDest.Cells(newRow, 4).value = chkXU
+            newRow = newRow + 1
+       ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = mmpXU <> "1" And mmpXU <> "2" And mmpXU <> "3" And mmpXU <> "4" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+    Next i
+    
+
+End Sub
+
+Sub CreateRE_CHK_MMP_Table()
+    Dim wsChk As Worksheet
+    Dim wsMMP As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowMMP As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim mmpDescription As String
+    Dim chkXU As String
+    Dim mmpXU As String
+    Dim newRow As Long
+    
+    ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsMMP = ThisWorkbook.Sheets("MMP")
+ 
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowMMP = wsMMP.Cells(wsMMP.Rows.Count, "A").End(xlUp).Row
+        
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("RE+CHK+MMP")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "CHK+MMP"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' headers
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "MMP Part Number"
+    wsDest.Cells(1, 5).value = "MMP Description"
+
+    ' 1U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "1U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "1" And InStr(chkDescription, "RE1") > 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height and "RE1"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "1" And InStr(mmpDescription, "RE1") > 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+    
+    ' 2U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "2U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "2" And InStr(chkDescription, "RE2") > 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "2" and "RE2"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "2" And InStr(mmpDescription, "RE2") > 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+    chkXU = 0
+        ' 3U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "3U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "3" And InStr(chkDescription, "RE3") > 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "3" and "RE3"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "3" And InStr(mmpDescription, "RE3") > 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+
+    ' 4U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "4U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "4" And InStr(chkDescription, "RE4") > 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "3" and "RE3"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "4" And InStr(mmpDescription, "RE4") > 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+     'Other
+    wsDest.Cells(newRow, 1).value = "Other"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+      If chkXU <> "1" And chkXU <> "2" And chkXU <> "3" And chkXU <> "4" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            wsDest.Cells(newRow, 4).value = chkXU
+            newRow = newRow + 1
+       ' Add MMP that match the height
+            For j = 2 To lastRowMMP
+            mmpDescription = wsMMP.Cells(j, 2).value
+            mmpXU = ExtractHeight(mmpDescription)
+                If mmpXU = mmpXU <> "1" And mmpXU <> "2" And mmpXU <> "3" And mmpXU <> "4" Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = wsMMP.Cells(j, 2).value
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+            End If
+    Next i
+    
+    
+End Sub
+
+Sub CreateRS_CHK_MMP_Table()
+    Dim wsChk As Worksheet
+    Dim wsMMP As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowMMP As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim mmpDescription As String
+    Dim chkXU As String
+    Dim mmpXU As String
+    Dim newRow As Long
+    
+    ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsMMP = ThisWorkbook.Sheets("MMP")
+ 
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowMMP = wsMMP.Cells(wsMMP.Rows.Count, "A").End(xlUp).Row
+        
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("RS+CHK+MMP")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "CHK+MMP"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' headers
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "MMP Part Number"
+    wsDest.Cells(1, 5).value = "MMP Description"
+
+    ' 1U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "1U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "1" And InStr(chkDescription, "RS1") > 0 And InStr(mmpDescription, "RS1.5") = 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height and "RE1"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "1" And InStr(mmpDescription, "RS1") > 0 And InStr(mmpDescription, "RS1.5") = 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+    
+    ' 2U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "2U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "2" And InStr(chkDescription, "RS2") > 0 And InStr(mmpDescription, "RS2.5") = 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "2" and "RE2"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "2" And InStr(mmpDescription, "RS2") > 0 And InStr(mmpDescription, "RS2.5") = 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+    chkXU = 0
+        ' 3U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "3U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "3" And InStr(chkDescription, "RS3") > 0 And InStr(mmpDescription, "RS3.5") = 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "3" and "RE3"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "3" And InStr(mmpDescription, "RS3") > 0 And InStr(mmpDescription, "RS3.5") = 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+
+    ' 4U
+    newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "4U"
+    newRow = newRow + 1
+    
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkXU = ExtractHeight(chkDescription)
+        
+        If chkXU = "4" And InStr(chkDescription, "RS4") > 0 And InStr(mmpDescription, "RS4.5") = 0 Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            
+            ' Add MMP that match the height "3" and "RE3"
+            For j = 2 To lastRowMMP
+                mmpDescription = wsMMP.Cells(j, 2).value
+                mmpXU = ExtractHeight(mmpDescription)
+                
+                If mmpXU = "4" And InStr(mmpDescription, "RS4") > 0 And InStr(mmpDescription, "RS4.5") = 0 Then
+                    wsDest.Cells(newRow, 4).value = wsMMP.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mmpDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+    
+    
+End Sub
+Sub CreateCHK_MBK_Table()
+    Dim wsChk As Worksheet
+    Dim wsMBK As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowMBK As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim mbkDescription As String
+    Dim chkDepth As String
+    Dim mbkDepth As String
+    Dim chkHeight As String
+    Dim mbkHeight As String
+    Dim newRow As Long
+    
+    ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsMBK = ThisWorkbook.Sheets("MBK")
+    
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowMBK = wsMBK.Cells(wsMBK.Rows.Count, "A").End(xlUp).Row
+    
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("CHK+MBK")
+    On Error GoTo 0
+    
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "CHK+MBK"
+    Else
+        wsDest.Cells.Clear
+    End If
+    
+    ' Headers
+    
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "MMP Part Number"
+    wsDest.Cells(1, 5).value = "MMP Description"
+    
+    newRow = 2 ' Start from row 2 for data
+    
+    '1U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "1U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkDepth = ExtractDepth(chkDescription)
+        chkHeight = ExtractHeight(chkDescription)
+        
+        If chkDepth <> "" And chkHeight <> "" And chkHeight = "1" Then ' Only proceed if height is 1U
+            ' Write CHK entry with 1U prefix
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Find matching MBK descriptions with the same depth and height
+            For j = 2 To lastRowMBK
+                mbkDescription = wsMBK.Cells(j, 2).value
+                mbkDepth = ExtractDepth(mbkDescription)
+                mbkHeight = ExtractHeight(mbkDescription)
+                
+                If mbkDepth = chkDepth And mbkHeight = chkHeight Then
+                    ' Write matching MBK entry below CHK entry
+                    wsDest.Cells(newRow, 4).value = vbTab & wsMBK.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mbkDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+        End If
+    Next i
+    '2U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "2U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkDepth = ExtractDepth(chkDescription)
+        chkHeight = ExtractHeight(chkDescription)
+        
+        If chkDepth <> "" And chkHeight <> "" And chkHeight = "2" Then '
+            ' Write CHK entry with 1U prefix
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Find matching MBK descriptions with the same depth and height
+            For j = 2 To lastRowMBK
+                mbkDescription = wsMBK.Cells(j, 2).value
+                mbkDepth = ExtractDepth(mbkDescription)
+                mbkHeight = ExtractHeight(mbkDescription)
+                
+                If mbkDepth = chkDepth And mbkHeight = chkHeight Then
+                    ' Write matching MBK entry below CHK entry
+                    wsDest.Cells(newRow, 4).value = vbTab & wsMBK.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mbkDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+        End If
+    Next i
+    '3U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "3U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkDepth = ExtractDepth(chkDescription)
+        chkHeight = ExtractHeight(chkDescription)
+        
+        If chkDepth <> "" And chkHeight <> "" And chkHeight = "3" Then ' Only proceed if height is 1U
+            ' Write CHK entry with 1U prefix
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Find matching MBK descriptions with the same depth and height
+            For j = 2 To lastRowMBK
+                mbkDescription = wsMBK.Cells(j, 2).value
+                mbkDepth = ExtractDepth(mbkDescription)
+                mbkHeight = ExtractHeight(mbkDescription)
+                
+                If mbkDepth = chkDepth And mbkHeight = chkHeight Then
+                    ' Write matching MBK entry below CHK entry
+                    wsDest.Cells(newRow, 4).value = vbTab & wsMBK.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mbkDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+        End If
+    Next i
+    '4U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "4U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkDescription = wsChk.Cells(i, 2).value
+        chkDepth = ExtractDepth(chkDescription)
+        chkHeight = ExtractHeight(chkDescription)
+        
+        If chkDepth <> "" And chkHeight <> "" And chkHeight = "4" Then
+            wsDest.Cells(newRow, 2).value = wsChk.Cells(i, 1).value
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Find matching MBK descriptions with the same depth and height
+            For j = 2 To lastRowMBK
+                mbkDescription = wsMBK.Cells(j, 2).value
+                mbkDepth = ExtractDepth(mbkDescription)
+                mbkHeight = ExtractHeight(mbkDescription)
+                
+                If mbkDepth = chkDepth And mbkHeight = chkHeight Then
+                    ' Write matching MBK entry below CHK entry
+                    wsDest.Cells(newRow, 4).value = vbTab & wsMBK.Cells(j, 1).value
+                    wsDest.Cells(newRow, 5).value = mbkDescription
+                    newRow = newRow + 1
+                End If
+            Next j
+        End If
+    Next i
+    
+    ' Autofit columns
+    wsDest.Columns("A:E").AutoFit
+End Sub
+
+Sub CreateMBS_MEM_Table()
+    Dim wsMBS As Worksheet
+    Dim wsMEM As Worksheet
+    Dim wsDest As Worksheet
+    Dim lastRowMBS As Long
+    Dim lastRowMEM As Long
+    Dim i As Long
+    Dim j As Long
+    Dim mbsDescription As String
+    Dim memDescription As String
+    Dim mbsDimm As String
+    Dim memDimm As String
+    Dim newRow As Long
+    Dim currentMBS As String
+    Dim memRow As Long ' To track the row for MEM entries
+    
+    ' Set worksheet
+    Set wsMBS = ThisWorkbook.Sheets("MBS")
+    Set wsMEM = ThisWorkbook.Sheets("MEM")
+    
+    lastRowMBS = wsMBS.Cells(wsMBS.Rows.Count, "A").End(xlUp).Row
+    lastRowMEM = wsMEM.Cells(wsMEM.Rows.Count, "A").End(xlUp).Row
+    
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets("MBS+MEM")
+    On Error GoTo 0
+    
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "MBS+MEM"
+    Else
+        wsDest.Cells.Clear
+    End If
+    
+    ' Headers
+    wsDest.Cells(1, 2).value = "MBS Part Number"
+    wsDest.Cells(1, 3).value = "MBS Description"
+    wsDest.Cells(1, 4).value = "MEM Part Number"
+    wsDest.Cells(1, 5).value = "MEM Description"
+    
+    newRow = 2 ' Start from row 2 for data
+    currentMBS = ""
+    memRow = 2 ' Start from row 2 for MEM entries
+    
+    ' Loop through MBS (Motherboards) worksheet
+    For i = 2 To lastRowMBS
+        mbsDescription = wsMBS.Cells(i, 2).value
+        mbsDimm = ExtractDimm(mbsDescription) ' Function to extract socket type
+        
+        ' Check if MBS description contains valid socket type
+        If mbsDimm <> "" Then
+            ' Check if the current MBS part number changes
+            If wsMBS.Cells(i, 1).value <> currentMBS Then
+                ' Update current MBS part number
+                currentMBS = wsMBS.Cells(i, 1).value
+                
+                ' Reset memRow for the next MBS entry
+                memRow = 2
+            End If
+            
+            ' Loop through MEM (Memory) worksheet to find matching DIMM type
+            For j = 2 To lastRowMEM
+                memDescription = wsMEM.Cells(j, 2).value
+                memDimm = ExtractDimm(memDescription) ' Function to extract socket type
+                
+                ' Check if MEM description contains valid socket type
+                If memDimm <> "" And mbsDimm = memDimm Then
+                    ' Write matching MBS and MEM entries
+                    If memRow = 2 Then
+                        ' First MEM entry under current MBS
+                        wsDest.Cells(newRow, 2).value = currentMBS
+                        wsDest.Cells(newRow, 3).value = mbsDescription
+                    Else
+                        ' Leave MBS and MBS description blank for subsequent MEM entries
+                        wsDest.Cells(newRow, 2).value = ""
+                        wsDest.Cells(newRow, 3).value = ""
+                    End If
+                    
+                    ' Check if the MEM part number is MEM-1 or MEM-2
+                    If wsMEM.Cells(j, 1).value = "MEM-1" Or wsMEM.Cells(j, 1).value = "MEM-2" Then
+                        ' Write "No memory available"
+                        wsDest.Cells(newRow, 4).value = "No memory available"
+                        wsDest.Cells(newRow, 5).value = ""
+                    Else
+                        ' Write MEM part number and description
+                        wsDest.Cells(newRow, 4).value = wsMEM.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = memDescription
+                    End If
+                    
+                    ' Move to the next row in the destination sheet
+                    newRow = newRow + 1
+                   
+                End If
+            Next j
+            newRow = newRow + 1
+        End If
+    Next i
+End Sub
+Sub CreateCHK_PSK_Table()
+    Dim wsChk As Worksheet
+    Dim wsPSK As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowPSK As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim pskDescription As String
+    Dim chkXU As String
+    Dim pskXU As String
+    Dim newRow As Long
+    Dim chkPartNumber As String
+    Dim firstPSK As Boolean
+    
+    ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsPSK = ThisWorkbook.Sheets("PSK")
+ 
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowPSK = wsPSK.Cells(wsPSK.Rows.Count, "A").End(xlUp).Row
+        
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Dim wsDest As Worksheet
+    Set wsDest = ThisWorkbook.Sheets("CHK+PSK")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "NonRE+CHK+PSK"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' Headers
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "PSK Part Number"
+    wsDest.Cells(1, 5).value = "PSK Description"
+
+    ' Initialize variables
+newRow = 2 ' Starting row for data (after headers)
+firstPSK = True ' Flag to manage indentation
+
+' Process data
+For i = 2 To lastRowCHK
+    chkPartNumber = wsChk.Cells(i, 1).value
+    chkDescription = wsChk.Cells(i, 2).value
+    
+    ' Check if CHK description does NOT contain "RE1" and does NOT contain "AV"
+    If InStr(chkDescription, "RE1") = 0 And InStr(chkDescription, "AV") = 0 Then
+        ' Extract height using custom function
+        chkXU = ExtractHeight(chkDescription)
+        
+        ' Check if height equals 1
+        If chkXU = "1" Then
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description does NOT contain "RE1"
+                If InStr(pskDescription, "RE1") = 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    End If
+Next i
+For i = 2 To lastRowCHK
+    chkPartNumber = wsChk.Cells(i, 1).value
+    chkDescription = wsChk.Cells(i, 2).value
+    
+    ' Check if CHK description does NOT contain "RE1" and does NOT contain "AV"
+    If InStr(chkDescription, "RE2") = 0 And InStr(chkDescription, "AV") = 0 Then
+        ' Extract height using custom function
+        chkXU = ExtractHeight(chkDescription)
+        
+        ' Check if height equals 1
+        If chkXU = "2" Then
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description does NOT contain "RE1"
+                If InStr(pskDescription, "RE2") = 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    End If
+Next i
+For i = 2 To lastRowCHK
+    chkPartNumber = wsChk.Cells(i, 1).value
+    chkDescription = wsChk.Cells(i, 2).value
+    
+    ' Check if CHK description does NOT contain "RE1" and does NOT contain "AV"
+    If InStr(chkDescription, "RE3") = 0 And InStr(chkDescription, "AV") = 0 Then
+        ' Extract height using custom function
+        chkXU = ExtractHeight(chkDescription)
+        
+        ' Check if height equals 1
+        If chkXU = "3" Then
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description does NOT contain "RE1"
+                If InStr(pskDescription, "RE3") = 0 And InStr(pskDescription, "ES3") = 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    End If
+Next i
+For i = 2 To lastRowCHK
+    chkPartNumber = wsChk.Cells(i, 1).value
+    chkDescription = wsChk.Cells(i, 2).value
+    
+    ' Check if CHK description does NOT contain "RE1" and does NOT contain "AV"
+    If InStr(chkDescription, "RE4") = 0 And InStr(chkDescription, "AV") = 0 Then
+        ' Extract height using custom function
+        chkXU = ExtractHeight(chkDescription)
+        
+        ' Check if height equals 1
+        If chkXU = "4" Then
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description does NOT contain "RE1"
+                If InStr(pskDescription, "RE4") = 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    End If
+Next i
+End Sub
+Sub CreateRE_CHK_PSK_Table()
+    Dim wsChk As Worksheet
+    Dim wsPSK As Worksheet
+    Dim lastRowCHK As Long
+    Dim lastRowPSK As Long
+    Dim i As Long
+    Dim j As Long
+    Dim chkDescription As String
+    Dim pskDescription As String
+    Dim chkXU As String
+    Dim pskXU As String
+    Dim newRow As Long
+    Dim chkPartNumber As String
+    Dim firstPSK As Boolean
+    
+    ' Set worksheet
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    Set wsPSK = ThisWorkbook.Sheets("PSK")
+ 
+    lastRowCHK = wsChk.Cells(wsChk.Rows.Count, "A").End(xlUp).Row
+    lastRowPSK = wsPSK.Cells(wsPSK.Rows.Count, "A").End(xlUp).Row
+        
+    ' Create or clear destination sheet
+    On Error Resume Next
+    Dim wsDest As Worksheet
+    Set wsDest = ThisWorkbook.Sheets("RE+CHK+PSK")
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = "CHK+PSK"
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' Headers
+    wsDest.Cells(1, 2).value = "CHK Part Number"
+    wsDest.Cells(1, 3).value = "CHK Description"
+    wsDest.Cells(1, 4).value = "PSK Part Number"
+    wsDest.Cells(1, 5).value = "PSK Description"
+
+    ' Initialize variables
+    newRow = 2 ' Starting row for data (after headers)
+    firstPSK = True ' Flag to manage indentation
+    
+    ' Process data
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "1U"
+    newRow = newRow + 1
+    For i = 2 To lastRowCHK
+        chkPartNumber = wsChk.Cells(i, 1).value
+        chkDescription = wsChk.Cells(i, 2).value
+        
+        ' Check if CHK description contains "RE1"
+        If InStr(chkDescription, "RE1") > 0 Then
+            ' Extract height using custom function
+            chkXU = ExtractHeight(chkDescription)
+            
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description contains "RE1"
+                If InStr(pskDescription, "RE1") > 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    Next i
+    '2U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "2U"
+    newRow = newRow + 1
+     For i = 2 To lastRowCHK
+        chkPartNumber = wsChk.Cells(i, 1).value
+        chkDescription = wsChk.Cells(i, 2).value
+        
+        ' Check if CHK description contains "RE1"
+        If InStr(chkDescription, "RE2") > 0 Then
+            ' Extract height using custom function
+            chkXU = ExtractHeight(chkDescription)
+            
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description contains "RE1"
+                If InStr(pskDescription, "RE2") > 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    Next i
+      '3U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "3U"
+    newRow = newRow + 1
+     For i = 2 To lastRowCHK
+        chkPartNumber = wsChk.Cells(i, 1).value
+        chkDescription = wsChk.Cells(i, 2).value
+        
+        ' Check if CHK description contains "RE1"
+        If InStr(chkDescription, "RE3") > 0 Then
+            ' Extract height using custom function
+            chkXU = ExtractHeight(chkDescription)
+            
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description contains "RE1"
+                If InStr(pskDescription, "RE3") > 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    Next i
+    '4U
+     newRow = newRow + 1
+    wsDest.Cells(newRow, 1).value = "4U"
+    newRow = newRow + 1
+     For i = 2 To lastRowCHK
+        chkPartNumber = wsChk.Cells(i, 1).value
+        chkDescription = wsChk.Cells(i, 2).value
+        
+        ' Check if CHK description contains "RE1"
+        If InStr(chkDescription, "RE4") > 0 Then
+            ' Extract height using custom function
+            chkXU = ExtractHeight(chkDescription)
+            
+            ' Print CHK part once
+            wsDest.Cells(newRow, 2).value = chkPartNumber
+            wsDest.Cells(newRow, 3).value = chkDescription
+            newRow = newRow + 1
+            
+            ' Loop through PSK parts to find matches with "RE1"
+            For j = 2 To lastRowPSK
+                pskDescription = wsPSK.Cells(j, 2).value
+                
+                ' Check if PSK description contains "RE1"
+                If InStr(pskDescription, "RE4") > 0 Then
+                    ' Extract height using custom function
+                    pskXU = ExtractHeight(pskDescription)
+                    
+                    ' Match if heights are equal
+                    If chkXU = pskXU Then
+                        ' Indent PSK parts below CHK part
+                        If firstPSK Then
+                            firstPSK = False
+                        Else
+                            newRow = newRow + 1
+                        End If
+                        wsDest.Cells(newRow, 4).value = wsPSK.Cells(j, 1).value
+                        wsDest.Cells(newRow, 5).value = pskDescription
+                    End If
+                End If
+            Next j
+            firstPSK = True ' Reset the flag for next CHK part
+            newRow = newRow + 1 ' Move to the next row for the next CHK part
+        End If
+    Next i
+    
+End Sub
+
+
+
+
+
+
+
+
+
+'------------------------------------------------------------------------------------FUNCTIONS-----------------------------------------------------------------
+Function ExtractHeight(description As String) As String
+    Dim startIndex As Integer
+    Dim endIndex As Integer
+    Dim subStr As String
+    Dim height As String
+    Dim code As String
+    Dim i As Integer
+    parts = Split(description, ",")
+    
+    startIndex = InStr(description, "RS")
+    If startIndex = 0 Then
+        startIndex = InStr(description, "RE")
+    End If
+    If startIndex = 0 Then
+        startIndex = InStr(description, "ES")
+    End If
+  
+ If startIndex > 0 Then
+        endIndex = startIndex + 1
+        If endIndex < Len(description) Then
+            subStr = Mid(description, endIndex + 1, 1)
+            If IsNumeric(subStr) Then
+                ExtractHeight = subStr
+            End If
+        End If
+    Else
+          For i = 0 To UBound(parts)
+        If InStr(parts(i), "U") > 0 Then
+            Dim beforeU As String
+            beforeU = Mid(parts(i), InStr(parts(i), "U") - 1, 1)
+            If IsNumeric(beforeU) Then
+                ExtractHeight = Trim(Left(parts(i), InStr(parts(i), "U") - 1))
+                Exit For
+            End If
+        End If
+    Next i
+    
+    End If
+    
+  If ExtractHeight = "" Then
+    For i = 0 To UBound(parts)
+        ' Check for a match that ends with "U"
+        If InStr(parts(i), "U") > 0 Then
+            Dim heightPart As String
+            heightPart = Trim(parts(i))
+            ' Check if it contains "U" and if there's a numeric part before it
+            If IsNumeric(Left(heightPart, Len(heightPart) - 1)) Then
+                ' Remove the "U" from the heightPart
+                ExtractHeight = Left(heightPart, Len(heightPart) - 1)
+                Exit For
+            End If
+        End If
+    Next i
+End If
+    
+End Function
+
+Function ExtractDepth(description As String) As String
+    Dim depthPattern As String
+    Dim regex As Object
+    Dim matches As Object
+    Dim match As Object
+    Dim defaultDepth As String
+    Dim prefixPattern As String
+    Dim prefixRegex As Object
+    Dim prefixMatches As Object
+    Dim prefixMatch As Object
+
+    ' Regular expression pattern to match depth information (e.g., "22"", "19"", etc.)
+    depthPattern = "\b\d{2}""?\b"
+    
+    ' Regular expression pattern to match depth prefixes (L22, S18)
+    prefixPattern = "(?:L|S)(\d{2})"
+    
+    ' Create a RegExp object for depth values
+    Set regex = CreateObject("VBScript.RegExp")
+    With regex
+        .Global = True
+        .Pattern = depthPattern
+    End With
+    
+    ' Create a RegExp object for prefix patterns
+    Set prefixRegex = CreateObject("VBScript.RegExp")
+    With prefixRegex
+        .Global = True
+        .Pattern = prefixPattern
+    End With
+    
+    ' Find all matches for depth values
+    Set matches = regex.Execute(description)
+    
+    ' If depth is found, return the first match
+    If matches.Count > 0 Then
+        Set match = matches(0)
+        ExtractDepth = match.value
+    Else
+        ' If no match found, check for prefix matches
+        Set prefixMatches = prefixRegex.Execute(description)
+        
+        If prefixMatches.Count > 0 Then
+            Set prefixMatch = prefixMatches(0)
+            ExtractDepth = prefixMatch.SubMatches(0) & """" ' Return the depth value from prefix match
+        Else
+            ' Return default depth if no match found
+            defaultDepth = "19"""
+            ExtractDepth = defaultDepth
+        End If
+    End If
+End Function
+
+Function extractOpticalDVD(description As String) As Boolean
+    ' Check if "OPTICAL" or "DVD" is in the description
+    extractOpticalDVD = (InStr(1, UCase(description), "OPTICAL DRIVE", vbTextCompare) > 0) Or (InStr(1, UCase(description), "DVD", vbTextCompare) > 0)
+End Function
+
+
+Function ExtractMotherboard(description As String) As String
+    parts = Split(description, ",")
+    
+    If UBound(parts) >= 1 Then
+        motherboardName = Trim(parts(1))
+    Else
+        Exit Function
+    End If
+    
+    If Not motherboardName Like "*MOTHERBOARD*" Then
+        Dim mbsSheet As Worksheet
+        Set mbsSheet = ThisWorkbook.Sheets("MBS")
+        
+        Dim lastRow As Integer
+        lastRow = mbsSheet.Cells(mbsSheet.Rows.Count, "A").End(xlUp).Row
+        
+        For i = 2 To lastRow
+            If InStr(1, mbsSheet.Cells(i, 2).value, motherboardName, vbTextCompare) > 0 Then
+                ExtractMotherboard = mbsSheet.Cells(i, 1).value
+                Exit Function
+            End If
+        Next i
+        
+        ExtractMotherboard = ""
+    Else
+        ExtractMotherboard = ""
+    End If
+End Function
+
+Function ExtractLGASocket(partDescription As String) As String
+Dim lgaSocket As String
+Dim lgaPattern As String
+Dim regex As Object
+Set regex = CreateObject("VBScript.RegExp")
+
+lgaPattern = "LGA\s?\d{2,4}" ' Pattern to match LGA socket number
+
+With regex
+    .Global = True
+    .Pattern = lgaPattern
+    If .test(partDescription) Then
+        ExtractLGASocket = .Execute(partDescription)(0)
+    Else
+        ExtractLGASocket = ""
+    End If
+End With
+End Function
+
+Function ExtractDimm(description As String) As String
+    Dim dimm As String
+    
+    ' Check for x11 DIMM first
+    If InStr(1, description, "X11", vbTextCompare) > 0 Then
+        dimm = "DDR4"
+    ElseIf InStr(1, description, "X12", vbTextCompare) > 0 Then
+        dimm = "DDR4"
+    ElseIf InStr(1, description, "H12", vbTextCompare) > 0 Then
+        dimm = "DDR4"
+    ElseIf InStr(1, description, "X13", vbTextCompare) > 0 Then
+        dimm = "DDR5"
+    ElseIf InStr(1, description, "DDR3", vbTextCompare) > 0 Then
+        dimm = "DDR3"
+    ElseIf InStr(1, description, "DDR4", vbTextCompare) > 0 Then
+        dimm = "DDR4"
+    ElseIf InStr(1, description, "DDR5", vbTextCompare) > 0 Then
+        dimm = "DDR5"
+    Else
+        dimm = "Unknown" ' Default case if none of the conditions are met
+    End If
+        
+    ExtractDimm = dimm
+End Function
+
+Function extractDriveType(description As String) As String
+    Dim driveType As String
+    
+    If InStr(1, description, "SATA", vbTextCompare) > 0 Then
+        driveType = "SATA"
+    ElseIf InStr(1, description, "NVME", vbTextCompare) > 0 Then
+        driveType = "NVME"
+    Else
+        driveType = "Unknown"
+    End If
+    
+    extractDriveType = driveType
+End Function
+
+Function extractDriveCount(description As String) As Integer
+    Dim startPos As Integer
+    Dim endPos As Integer
+    Dim countStr As String
+
+    ' Initialize the return value
+    extractDriveCount = 0
+
+    ' Find the position of "X"
+    startPos = InStr(description, "X")
+
+    ' If "X" is found, find the number before it
+    If startPos > 0 Then
+        ' Move back to find the space before the number
+        endPos = startPos - 1
+        Do While endPos > 0 And Mid(description, endPos, 1) Like "[0-9]"
+            endPos = endPos - 1
+        Loop
+        ' Extract the number
+        countStr = Mid(description, endPos + 1, startPos - endPos - 1)
+        
+        ' Convert to integer if it's a valid number
+        If IsNumeric(countStr) Then
+            extractDriveCount = CInt(countStr)
+        End If
+    End If
+End Function
+
+
+
+'-------------------------------------------------------------------------------------------SHEET FUNCTIONS--------------------------------------------------
+Sub IncrementAndWriteData()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumberCell As Range
+    Dim partDescription As Variant
+    
+
+    
+    ' Clear cells in column G below G5
+    Range("G6:G" & Rows.Count).ClearContents
+    ' Clear cells in column H below G5
+    Range("H6:H" & Rows.Count).ClearContents
+    
+    If Not IsNumeric(Range("G3").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell G3
+    startingRow = Range("G3").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = Range("G6")
+    Set partNumberCell = Range("G6")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column D
+    Do While True
+        ' Get part number and part description from columns D and E at current index
+        partNumberCell.value = Cells(currentIndex, "D").value
+        partDescription = Cells(currentIndex, "E").value
+        
+        ' Check if part number cell is blank
+        If partNumberCell.value = "" Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column G)
+        outputCell.value = partNumberCell.value
+        
+        ' Output part description to the adjacent cell in column H
+        outputCell.Offset(0, 1).value = partDescription
+        
+        ' Move to the next output cells (G and H) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        Set partNumberCell = partNumberCell.Offset(1, 0)
+        
+        ' Move to next row in columns D and E
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+
+Sub compatibleCHK()
+    Dim wsSearch1 As Worksheet
+    Dim wsSearch2 As Worksheet
+    Dim wsSearch3 As Worksheet
+    Dim wsInput As Worksheet
+    Dim wsChk As Worksheet
+    Dim searchString1 As String
+    Dim searchString2 As String
+    Dim searchString3 As String
+    Dim lastRow As Long
+    Dim currentCell As Range
+    Dim outputArray1() As Variant
+    Dim outputArray2() As Variant
+    Dim outputArray3() As Variant
+    Dim outputCount1 As Long
+    Dim outputCount2 As Long
+    Dim outputCount3 As Long
+    Dim rowNum As Long
+    Dim wsIndex As Integer
+    Dim wsArray As Variant
+    Dim searchArray As Variant
+    Dim outputArray As Variant
+    Dim repeatedArray() As Variant
+    Dim repeatedCount As Long
+    
+    ' Set worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsSearch1 = ThisWorkbook.Sheets("CHK+PSK")
+    Set wsSearch2 = ThisWorkbook.Sheets("CHK+MMP")
+    Set wsSearch3 = ThisWorkbook.Sheets("CHK+MBK")
+    Set wsInput = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    
+    'Clear Compatibility Matrix
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+     ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+    
+    ' Get search strings from input sheet
+    searchString1 = wsInput.Range("C6").value
+    searchString2 = wsInput.Range("C7").value
+    searchString3 = wsInput.Range("C8").value
+    
+
+    ' Initialize arrays and counters
+    outputCount1 = 0
+    outputCount2 = 0
+    outputCount3 = 0
+    repeatedCount = 0
+    
+    ' Array of worksheets and search strings to loop through
+    wsArray = Array(wsSearch1, wsSearch2, wsSearch3)
+    searchArray = Array(searchString1, searchString2, searchString3)
+    
+    ' Loop through each worksheet and corresponding search string
+    For wsIndex = LBound(wsArray) To UBound(wsArray)
+        Dim wsSearch As Worksheet
+        Dim searchString As String
+        Set wsSearch = wsArray(wsIndex)
+        searchString = searchArray(wsIndex)
+        
+        ' Find the last row in column D
+        lastRow = wsSearch.Cells(wsSearch.Rows.Count, "D").End(xlUp).Row
+        
+        ' Initialize the output array based on the worksheet
+        Select Case wsIndex
+            Case 0
+                ReDim outputArray1(1 To 1)
+            Case 1
+                ReDim outputArray2(1 To 1)
+            Case 2
+                ReDim outputArray3(1 To 1)
+        End Select
+        
+        ' Search column D for the search string or include all items if searchString is empty
+        For rowNum = 1 To lastRow
+            If Trim(UCase(searchString)) = "" Or Trim(UCase(wsSearch.Cells(rowNum, "D").value)) = Trim(UCase(searchString)) Then
+                ' If found, check column B of the same row
+                Set currentCell = wsSearch.Cells(rowNum, "B")
+                
+                ' Move up until a non-blank cell is found
+                Do While IsEmpty(currentCell) And currentCell.Row > 1
+                    Set currentCell = wsSearch.Cells(currentCell.Row - 1, "B")
+                Loop
+                
+                ' Add the value to the appropriate array if it's not blank
+                If Not IsEmpty(currentCell.value) Then
+                    Select Case wsIndex
+                        Case 0
+                            outputCount1 = outputCount1 + 1
+                            ReDim Preserve outputArray1(1 To outputCount1)
+                            outputArray1(outputCount1) = currentCell.value
+                        Case 1
+                            outputCount2 = outputCount2 + 1
+                            ReDim Preserve outputArray2(1 To outputCount2)
+                            outputArray2(outputCount2) = currentCell.value
+                        Case 2
+                            outputCount3 = outputCount3 + 1
+                            ReDim Preserve outputArray3(1 To outputCount3)
+                            outputArray3(outputCount3) = currentCell.value
+                    End Select
+                End If
+            End If
+        Next rowNum
+    Next wsIndex
+    
+    ' Collect all values into one array
+    Dim allValues As Object
+    Set allValues = CreateObject("Scripting.Dictionary")
+    
+    Dim value As Variant
+    
+    ' Add values from outputArray1
+    For Each value In outputArray1
+        If Not IsEmpty(value) Then allValues(value) = allValues(value) + 1
+    Next value
+    
+    ' Add values from outputArray2
+    For Each value In outputArray2
+        If Not IsEmpty(value) Then allValues(value) = allValues(value) + 1
+    Next value
+    
+    ' Add values from outputArray3
+    For Each value In outputArray3
+        If Not IsEmpty(value) Then allValues(value) = allValues(value) + 1
+    Next value
+    
+    ' Identify repeated values
+    ReDim repeatedArray(1 To 1)
+    
+    For Each value In allValues.Keys
+        If allValues(value) > 1 Then
+            repeatedCount = repeatedCount + 1
+            ReDim Preserve repeatedArray(1 To repeatedCount)
+            repeatedArray(repeatedCount) = value
+        End If
+    Next value
+    
+    ' Insert repeated values into CONFIGURATOR sheet starting from B18
+    If repeatedCount > 0 Then
+        wsConfig.Range("B18").Resize(repeatedCount, 1).value = Application.WorksheetFunction.Transpose(repeatedArray)
+    End If
+    
+    ' Insert part descriptions into CONFIGURATOR sheet starting from C18
+    Dim partNumber As Variant
+    Dim partDesc As Variant
+    Dim descRow As Long
+    
+    descRow = 18
+    For Each partNumber In repeatedArray
+        ' Find the part description in the CHK sheet
+        On Error Resume Next
+        partDesc = Application.WorksheetFunction.VLookup(partNumber, wsChk.Range("A:B"), 2, False)
+        On Error GoTo 0
+        
+        ' If description is found, place it in column C
+        If Not IsError(partDesc) Then
+            wsConfig.Cells(descRow, "C").value = partDesc
+        Else
+            wsConfig.Cells(descRow, "C").value = "Description not found"
+        End If
+        
+        descRow = descRow + 1
+               
+    Next partNumber
+    
+
+    
+End Sub
+
+Sub compatiblePSK()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    Dim btn As Shape
+    Dim lastRow As Integer
+    Dim targetRow As Integer
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("CHK+PSK")
+    
+    ' Clear cells in column K and L below K5 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+    ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+    
+    If Not IsNumeric(wsConfig.Range("I5").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell I5
+    startingRow = wsConfig.Range("I5").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column B on CHK+PSK sheet
+    Do While True
+        ' Get part number and part description from columns B and C at current index on CHK+PSK sheet
+        partNumber = wsData.Cells(currentIndex, "D").value
+        partDescription = wsData.Cells(currentIndex, "E").value
+        
+        ' Check if part number is blank
+        If IsEmpty(partNumber) Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column K)
+        outputCell.value = partNumber
+        
+        ' Output part description to the adjacent cell in column L
+        outputCell.Offset(0, 1).value = partDescription
+        
+        ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+        
+        ' Move to the next output cells (K and L) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        
+        ' Move to next row in columns B and C on CHK+PSK sheet
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+
+Sub compatibleMBS()
+    Dim rowIndex As Integer
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    Dim targetRow As Long
+    Dim btn As Shape
+    Dim outputCell As Range
+
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("MBK+MBS")
+    
+    ' Clear cells in columns B and C below row 18 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+    ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    ' Check if the value in I8 is numeric
+    If Not IsNumeric(wsConfig.Range("I8").value) Then
+        MsgBox "Error: Value in cell I8 is not numeric.", vbCritical
+        Exit Sub
+    End If
+
+    ' Read row index from cell I8
+    rowIndex = wsConfig.Range("I8").value
+    
+    ' Fetch part number and part description from columns D and E at the specified row on MBK+MBS sheet
+    partNumber = wsData.Cells(rowIndex, "D").value
+    partDescription = wsData.Cells(rowIndex, "E").value
+    
+    ' Check if part number and part description are valid
+    If IsEmpty(partNumber) Or IsEmpty(partDescription) Then
+        MsgBox "Error: Part number or part description not found in the specified row.", vbCritical
+        Exit Sub
+    End If
+
+    ' Output part number and part description to the CONFIGURATOR sheet
+    Set outputCell = wsConfig.Range("B18")
+    outputCell.value = partNumber
+    outputCell.Offset(0, 1).value = partDescription ' Place description in column C
+
+    ' Add a button in the same row in column D
+    targetRow = outputCell.Row
+    Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+        wsConfig.Cells(targetRow, "M").Left, _
+        wsConfig.Cells(targetRow, "M").Top, _
+        wsConfig.Cells(targetRow, "M").Width, _
+        wsConfig.Cells(targetRow, "M").height)
+        
+    btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+    btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+    
+    MsgBox "Part number and description added, and button created successfully!", vbInformation
+End Sub
+
+Sub compatiblePRO()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("MBS+PRO")
+    
+    ' Clear cells in column K and L below K5 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+       ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    
+    If Not IsNumeric(wsConfig.Range("I9").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell I5
+    startingRow = wsConfig.Range("I9").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column B on CHK+PSK sheet
+    Do While True
+        ' Get part number and part description from columns B and C at current index on CHK+PSK sheet
+        partNumber = wsData.Cells(currentIndex, "D").value
+        partDescription = wsData.Cells(currentIndex, "E").value
+        
+        ' Check if part number is blank
+        If IsEmpty(partNumber) Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column K)
+        outputCell.value = partNumber
+        
+        ' Output part description to the adjacent cell in column L
+        outputCell.Offset(0, 1).value = partDescription
+        
+            ' Add a button in the same row in column D
+    targetRow = outputCell.Row
+    Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+        wsConfig.Cells(targetRow, "M").Left, _
+        wsConfig.Cells(targetRow, "M").Top, _
+        wsConfig.Cells(targetRow, "M").Width, _
+        wsConfig.Cells(targetRow, "M").height)
+        
+    btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+    btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+    
+        ' Move to the next output cells (K and L) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        
+        ' Move to next row in columns B and C on CHK+PSK sheet
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+
+Sub compatibleMEM()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("MBS+MEM")
+    
+    ' Clear cells in column K and L below K5 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+       ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    
+    If Not IsNumeric(wsConfig.Range("J9").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell I5
+    startingRow = wsConfig.Range("J9").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column B on CHK+PSK sheet
+    Do While True
+        ' Get part number and part description from columns B and C at current index on CHK+PSK sheet
+        partNumber = wsData.Cells(currentIndex, "D").value
+        partDescription = wsData.Cells(currentIndex, "E").value
+        
+        ' Check if part number is blank
+        If IsEmpty(partNumber) Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column K)
+        outputCell.value = partNumber
+        
+        ' Output part description to the adjacent cell in column L
+        outputCell.Offset(0, 1).value = partDescription
+        
+           ' Add a button in the same row in column D
+    targetRow = outputCell.Row
+    Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+        wsConfig.Cells(targetRow, "M").Left, _
+        wsConfig.Cells(targetRow, "M").Top, _
+        wsConfig.Cells(targetRow, "M").Width, _
+        wsConfig.Cells(targetRow, "M").height)
+        
+    btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+    btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+        
+        ' Move to the next output cells (K and L) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        
+        ' Move to next row in columns B and C on CHK+PSK sheet
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+
+Sub compatibleMMP()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("RS+CHK+MMP")
+    
+    ' Clear cells in column K and L below K5 on CONFIGURATOR sheet
+     wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+       ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    
+    If Not IsNumeric(wsConfig.Range("J5").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell I5
+    startingRow = wsConfig.Range("J5").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column B on CHK+PSK sheet
+    Do While True
+        ' Get part number and part description from columns B and C at current index on CHK+PSK sheet
+        partNumber = wsData.Cells(currentIndex, "D").value
+        partDescription = wsData.Cells(currentIndex, "E").value
+        
+        ' Check if part number is blank
+        If IsEmpty(partNumber) Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column K)
+        outputCell.value = partNumber
+        
+        ' Output part description to the adjacent cell in column L
+        outputCell.Offset(0, 1).value = partDescription
+         ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+        
+        ' Move to the next output cells (K and L) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        
+        ' Move to next row in columns B and C on CHK+PSK sheet
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+Sub compatibleMBK()
+    Dim startingRow As Integer
+    Dim currentIndex As Integer
+    Dim outputCell As Range
+    Dim partNumber As Variant
+    Dim partDescription As Variant
+    Dim wsConfig As Worksheet
+    Dim wsData As Worksheet
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsData = ThisWorkbook.Sheets("CHK+MBK")
+    
+    ' Clear cells in column K and L below K5 on CONFIGURATOR sheet
+     wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+       ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    
+    If Not IsNumeric(wsConfig.Range("K5").value) Then
+        Exit Sub
+    End If
+    
+    ' Read starting row index from cell I5
+    startingRow = wsConfig.Range("K5").value + 1
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    ' Initialize current index
+    currentIndex = startingRow
+    
+    ' Loop until a blank cell is encountered in column B on CHK+PSK sheet
+    Do While True
+        ' Get part number and part description from columns B and C at current index on CHK+PSK sheet
+        partNumber = wsData.Cells(currentIndex, "D").value
+        partDescription = wsData.Cells(currentIndex, "E").value
+        
+        ' Check if part number is blank
+        If IsEmpty(partNumber) Then
+            Exit Do
+        End If
+        
+        ' Output part number to the current outputCell (column K)
+        outputCell.value = partNumber
+        
+        ' Output part description to the adjacent cell in column L
+        outputCell.Offset(0, 1).value = partDescription
+        
+         ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+        
+        ' Move to the next output cells (K and L) (downward)
+        Set outputCell = outputCell.Offset(1, 0)
+        
+        ' Move to next row in columns B and C on CHK+PSK sheet
+        currentIndex = currentIndex + 1
+    Loop
+End Sub
+
+Sub compatibleBRACKET()
+    Dim wsConfig As Worksheet
+    Dim wsChk As Worksheet
+    Dim partNumber As Variant
+    Dim partDescription As String
+    Dim chkHeight As String
+    Dim searchRange As Range
+    Dim foundCell As Range
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsChk = ThisWorkbook.Sheets("CHK")
+    
+    ' Clear cells in column B and C below B18 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    
+     ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+    
+    ' Get the value from C5 on CONFIGURATOR sheet
+    partNumber = wsConfig.Range("C5").value
+    
+    ' Check if C5 is empty
+    If IsEmpty(partNumber) Then
+        MsgBox "Please enter CHK in C5"
+        Exit Sub
+    End If
+    
+    ' Set output starting cell
+    Set outputCell = wsConfig.Range("B18")
+    
+    
+    ' Search for partNumber in column A of CHK sheet
+    Set searchRange = wsChk.Range("A:A")
+    Set foundCell = searchRange.Find(What:=partNumber, LookIn:=xlValues, LookAt:=xlWhole)
+    
+    If Not foundCell Is Nothing Then
+        ' If found, get the value from column B
+        partDescription = foundCell.Offset(0, 1).value
+        chkHeight = ExtractHeight(partDescription)
+        
+        ' Print the appropriate code based on the height
+        Select Case chkHeight
+            Case "1"
+                outputCell.value = "MOD-00020"
+                outputCell.Offset(0, 1).value = "MODULE, 1U, EXTENDED LENGTH HDD BRACKET, 4X MOUNTING HARDWARE"
+                
+                 ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Case "2"
+                outputCell.value = "MOD-00021"
+                outputCell.Offset(0, 1).value = "MODULE, 2U, EXTENDED LENGTH HDD BRACKET, 4X MOUNTING HARDWARE"
+                
+                 ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Case "3"
+                outputCell.value = "MOD-00022"
+                outputCell.Offset(0, 1).value = "MODULE, 3U, EXTENDED LENGTH HDD BRACKET, 4X MOUNTING HARDWARE"
+                
+                 ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Case "4"
+                outputCell.value = "MOD-00085"
+                outputCell.Offset(0, 1).value = "MODULE, 4U, RS4704S18, EXTENDED LENGTH HDD BRACKET, 4X MOUNTING HARDWARE"
+                
+                 ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Case Else
+                outputCell.value = "Unknown height: " & chkHeight
+        End Select
+    Else
+        ' If not found, notify the user
+        MsgBox "Part number not found in CHK sheet."
+    End If
+
+End Sub
+Sub compatibleCARRIER()
+    Dim wsConfig As Worksheet
+    Dim wsMod As Worksheet
+    Dim searchRange As Range
+    Dim cell As Range
+    Dim searchPhrase As String
+    Dim outputCell As Range
+    Dim outputRow As Long
+
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsMod = ThisWorkbook.Sheets("MOD")
+    
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    outputRow = 18
+    
+       ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+        
+    searchPhrase = "MODULE, DRIVE CARRIER"
+    Set searchRange = wsMod.Range("B:B")
+    
+    For Each cell In searchRange
+        If cell.Row > 1 And Not IsEmpty(cell.value) Then
+            
+            If InStr(1, cell.value, searchPhrase, vbTextCompare) > 0 Then
+                
+                Dim partNumber As Variant
+                Dim partDescription As Variant
+                
+                partNumber = wsMod.Cells(cell.Row, 1).value
+                partDescription = cell.value
+                
+                Set outputCell = wsConfig.Cells(outputRow, 2)
+                outputCell.value = partNumber
+                outputCell.Offset(0, 1).value = partDescription
+                
+                 ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+                
+                outputRow = outputRow + 1
+            End If
+        End If
+    Next cell
+End Sub
+
+
+Sub compatibleHDD()
+    Dim wsConfig As Worksheet
+    Dim wsMod As Worksheet
+    Dim wsHdd As Worksheet
+    Dim partNumber As Variant
+    Dim partHeight As String
+    Dim partDescription As String
+    Dim partQuantity As Integer
+    Dim availableBays As Integer
+    Dim searchRange As Range
+    Dim foundCell As Range
+    Dim bracketNum As String
+    
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+    Set wsMod = ThisWorkbook.Sheets("MOD")
+    Set wsHdd = ThisWorkbook.Sheets("HDD")
+    
+    ' Clear cells in column B and C below B18 on CONFIGURATOR sheet
+    wsConfig.Range("B18:B" & wsConfig.Rows.Count).ClearContents
+    wsConfig.Range("C18:C" & wsConfig.Rows.Count).ClearContents
+    Set outputCell = wsConfig.Range("B18")
+    
+     ' Remove all existing buttons in CONFIGURATOR sheet
+    For Each btn In wsConfig.Shapes
+        If btn.Type = msoFormControl Then btn.Delete
+    Next btn
+
+    partNumber = wsConfig.Range("C12").value
+    
+    '------------------------ Bracket part number, how tall, how many--------------------------------------
+    If IsEmpty(partNumber) Then
+        MsgBox "Please enter MOD in C12"
+        Exit Sub
+    End If
+    
+    Set searchRange = wsMod.Range("A:A")
+        Set foundCell = searchRange.Find(What:=partNumber, LookIn:=xlValues, LookAt:=xlWhole)
+    
+    If Not foundCell Is Nothing Then
+        ' If found, get the value from column B
+        partDescription = foundCell.Offset(0, 1).value
+        partHeight = ExtractHeight(partDescription)
+        
+    End If
+    
+    driveType = extractDriveType(wsConfig.Range("D13").value)
+    
+    driveCarrierCount = extractDriveCount(wsConfig.Range("D13").value)
+   
+    driveCount = Int(driveCarrierCount) * Int(wsConfig.Range("E13"))
+
+    MsgBox driveCount & "X " & driveType & " Drives Available"
+    
+   
+
+    
+ ' Loop through all rows in wsHdd to find matching descriptions containing the driveType
+   For Each hddRow In wsHdd.Range("A2", wsHdd.Cells(wsHdd.Rows.Count, "A").End(xlUp))
+    hddPartNumber = hddRow.value ' Assuming part number is in column A
+    hddDescription = hddRow.Offset(0, 1).value ' Assuming descriptions are in column B
+    
+    ' Check if the description contains "SSD, " + driveType
+    If InStr(1, hddDescription, "SSD, " + driveType, vbTextCompare) > 0 Then
+        ' Additional check: If driveType is NVME, skip if "M.2" is found in the description
+        If driveType = "NVME" And InStr(1, hddDescription, "M.2", vbTextCompare) = 0 Then
+            ' Print part number in column B and description in column C
+            outputCell.value = hddPartNumber ' Print part number (column A from wsHdd)
+            outputCell.Offset(0, 1).value = hddDescription ' Print part description (column B from wsHdd)
+            
+             ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Set outputCell = outputCell.Offset(1, 0) ' Move to the next row for output
+        ElseIf driveType <> "NVME" Then
+            ' Print part number and description if it's not NVME
+            outputCell.value = hddPartNumber
+            outputCell.Offset(0, 1).value = hddDescription
+            
+             ' Add a button in the same row in column M
+        targetRow = outputCell.Row
+        Set btn = wsConfig.Shapes.AddFormControl(xlButtonControl, _
+            wsConfig.Cells(targetRow, "M").Left, _
+            wsConfig.Cells(targetRow, "M").Top, _
+            wsConfig.Cells(targetRow, "M").Width, _
+            wsConfig.Cells(targetRow, "M").height)
+        
+        btn.OnAction = "AddToConfiguration" ' Replace with your macro name
+        btn.TextFrame.Characters.Text = "ADD TO CONFIGURATION"
+            Set outputCell = outputCell.Offset(1, 0)
+        End If
+    End If
+    Next hddRow
+    
+End Sub
+Sub AddToConfiguration()
+    Dim clickedButton As Shape
+    Dim buttonTopRow As Long
+    Dim partNumber As String
+    Dim partType As String
+    Dim wsConfig As Worksheet
+    Dim wsMatrix As Worksheet
+    Dim targetCell As Range
+
+    ' Define worksheets
+    Set wsConfig = ThisWorkbook.Sheets("CONFIGURATOR")
+
+
+    ' Determine the clicked button
+    On Error Resume Next
+    Set clickedButton = wsConfig.Shapes(Application.Caller)
+    On Error GoTo 0
+
+    If clickedButton Is Nothing Then
+        MsgBox "Error: Unable to determine the clicked button.", vbCritical
+        Exit Sub
+    End If
+
+    ' Get the row number of the button's top-left position
+    buttonTopRow = clickedButton.TopLeftCell.Row
+
+    ' Get the part number from the clicked row (assuming it's in Column B)
+    partNumber = wsConfig.Cells(buttonTopRow, 2).value
+    If partNumber = "" Then
+        MsgBox "Error: No part number found in the selected row.", vbCritical
+        Exit Sub
+    End If
+
+    ' Extract the part type (first 3 characters of the part number)
+    partType = Left(partNumber, 3)
+
+    ' Determine the corresponding configuration cell based on part type
+    Select Case partType
+        Case "CHK"
+            Set targetCell = wsConfig.Range("C5")
+        Case "PSK"
+            Set targetCell = wsConfig.Range("C6")
+        Case "MMP"
+            Set targetCell = wsConfig.Range("C7")
+        Case "MBK"
+            Set targetCell = wsConfig.Range("C8")
+        Case "MBS"
+            Set targetCell = wsConfig.Range("C9")
+        Case "PRO"
+            Set targetCell = wsConfig.Range("C10")
+        Case "MEM"
+            Set targetCell = wsConfig.Range("C11")
+        Case "MOD"
+            Set targetCell = wsConfig.Range("C12")
+        Case "MOD"
+            Set targetCell = wsConfig.Range("C13")
+        Case "HDD"
+            Set targetCell = wsConfig.Range("C14")
+        Case Else
+            MsgBox "Error: Part type '" & partType & "' not recognized.", vbCritical
+            Exit Sub
+    End Select
+
+    ' Update the configuration table with the part number
+    If Not targetCell Is Nothing Then
+        targetCell.value = partNumber
+        MsgBox "Part number '" & partNumber & "' added to the configuration in cell " & targetCell.Address, vbInformation
+    Else
+        MsgBox "Error: Unable to determine the target cell.", vbCritical
+    End If
+End Sub
+
