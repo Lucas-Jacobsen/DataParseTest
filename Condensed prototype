@@ -1,0 +1,95 @@
+' Generalized Sub for Processing Data Between Worksheets
+Sub ProcessData(
+    srcSheetName As String, destSheetName As String,
+    filterCol As String, filterCriteria As String,
+    matchSheetName As String, matchCol As String, matchCriteria As String,
+    headers As Variant, heightCol As String, heightMatch As String)
+    
+    Dim wsSrc As Worksheet, wsDest As Worksheet, wsMatch As Worksheet
+    Dim lastRowSrc As Long, lastRowMatch As Long, newRow As Long
+    Dim i As Long, j As Long
+    Dim srcVal As String, matchVal As String, height As String
+
+    ' Set worksheets
+    Set wsSrc = ThisWorkbook.Sheets(srcSheetName)
+    On Error Resume Next
+    Set wsDest = ThisWorkbook.Sheets(destSheetName)
+    If wsDest Is Nothing Then
+        Set wsDest = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDest.Name = destSheetName
+    Else
+        wsDest.Cells.Clear
+    End If
+    On Error GoTo 0
+
+    If matchSheetName <> "" Then
+        Set wsMatch = ThisWorkbook.Sheets(matchSheetName)
+        lastRowMatch = wsMatch.Cells(wsMatch.Rows.Count, matchCol).End(xlUp).Row
+    End If
+
+    ' Add headers
+    For i = LBound(headers) To UBound(headers)
+        wsDest.Cells(1, i + 1).Value = headers(i)
+    Next i
+
+    ' Process data
+    lastRowSrc = wsSrc.Cells(wsSrc.Rows.Count, filterCol).End(xlUp).Row
+    newRow = 2
+
+    For i = 2 To lastRowSrc
+        srcVal = wsSrc.Cells(i, filterCol).Value
+        height = wsSrc.Cells(i, heightCol).Value
+
+        ' Apply filter and height match
+        If InStr(1, srcVal, filterCriteria, vbTextCompare) > 0 And height = heightMatch Then
+            wsDest.Cells(newRow, 2).Value = wsSrc.Cells(i, 1).Value
+            wsDest.Cells(newRow, 3).Value = srcVal
+
+            ' Match logic
+            If Not wsMatch Is Nothing Then
+                For j = 2 To lastRowMatch
+                    matchVal = wsMatch.Cells(j, matchCol).Value
+                    If InStr(1, matchVal, matchCriteria, vbTextCompare) > 0 Then
+                        wsDest.Cells(newRow, 4).Value = wsMatch.Cells(j, 1).Value
+                        wsDest.Cells(newRow, 5).Value = matchVal
+                        newRow = newRow + 1
+                    End If
+                Next j
+            End If
+            newRow = newRow + 1
+        End If
+    Next i
+
+    wsDest.Columns.AutoFit
+End Sub
+
+' Example Usage
+Sub CreateCHK_MMP_Table_Condensed()
+    ProcessData "CHK", "CHK+MMP", "A", "CHK", "MMP", "A", "MMP", _
+                Array("CHK Part Number", "CHK Description", "MMP Part Number", "MMP Description"), _
+                "B", "1"
+End Sub
+
+' Note:
+' - Replace filterCol, filterCriteria, matchCol, matchCriteria, and heightMatch as needed.
+' - Additional customization for filtering logic can be added if required.
+
+' Helper Functions
+Function ExtractHeight(description As String) As String
+    ' Simplified height extraction logic
+    Dim parts() As String, i As Integer
+    parts = Split(description, ",")
+
+    For i = LBound(parts) To UBound(parts)
+        If InStr(parts(i), "U") > 0 Then
+            Dim heightPart As String
+            heightPart = Trim(parts(i))
+            If IsNumeric(Left(heightPart, Len(heightPart) - 1)) Then
+                ExtractHeight = Left(heightPart, Len(heightPart) - 1)
+                Exit Function
+            End If
+        End If
+    Next i
+
+    ExtractHeight = ""
+End Function
